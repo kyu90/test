@@ -1,0 +1,42 @@
+SELECT T.svc_mgmt_num
+     , hivemall.to_json(
+            named_struct("user_id"
+                         , sha2(T.svc_mgmt_num, 256) 
+                         , "items"
+                         , T.items)
+                        ) as results
+     , T.reco_type
+     , T.model
+     , T.dt--, '{{ ds_nodash }}' as dt   
+ FROM (SELECT tb.svc_mgmt_num
+            , collect_list(tb.item) as items
+            , tb.reco_type
+            , tb.model
+            , tb.dt
+        FROM (SELECT t.svc_mgmt_num
+                   , named_struct("id"
+                                  , prod_id
+                                  , "name"
+                                  , prod_nm
+                                  , "props"
+                                  , named_struct("percent_rk"
+                                                 , t.ranking
+                                                 , "score"
+                                                 , t.score)) as item
+                     , row_number() over(partition by svc_mgmt_num order by score desc) as rn
+                     , reco_type
+                     , model
+                     , dt
+                  FROM (SELECT *
+                             , row_number () over (partition by svc_mgmt_num order by score desc) as ranking
+                          FROM comm_dev.dmig_reco_predict_post_filter
+                         WHERE impression_yn != 'N'
+                           AND reco_type = 'vas_smartpick'
+                           AND model = 'kyu_lgb_20200723'
+                           AND dt = '20200728') as t
+            DISTRIBUTE BY svc_mgmt_num
+                  SORT BY rn) as tb
+GROUP BY tb.svc_mgmt_num
+       , tb.reco_type
+       , tb.model
+       , tb.dt) as T
