@@ -1,237 +1,55 @@
-drop table if exists dumbo.kyu_addition;
-create table if not exists dumbo.kyu_addition as
-SELECT a.client_id
-     , a.channel_id
-     , a.bucket_id
-     , a.experiment_id
-     , a.svc_mgmt_num
-     , a.model_type
-     , a.model_name
-     , a.model_version
-     , a.sale_org_id
-     , (case when a.rec_prod_id1 = 'VAS0000001' then 'NA00006577' else a.rec_prod_id1 end) as rec_prod_id1
-     , a.rec_prod_nm1
-     , (case when a.rec_prod_id2 = 'VAS0000001' then 'NA00006577' else a.rec_prod_id2 end) as rec_prod_id2
-     , a.rec_prod_nm2
-     , (case when a.rec_prod_id3 = 'VAS0000001' then 'NA00006577' else a.rec_prod_id3 end) as rec_prod_id3
-     , a.rec_prod_nm3
-     , (case when a.rec_prod_id4 = 'VAS0000001' then 'NA00006577' else a.rec_prod_id4 end) as rec_prod_id4
-     , a.rec_prod_nm4
-     , a.reco_dtm
-     , a.reco_dt as dt
- FROM (SELECT get_json_object(message, "$.bucket_name") AS bucket_id
-             , get_json_object(message, "$.experiment_id") AS experiment_id
-             , get_json_object(message, "$.hashed_user_id") AS svc_mgmt_num
-             , get_json_object(message, "$.ml_model_type") AS model_type
-             , get_json_object(message, "$.ml_model_name") AS model_name
-             , get_json_object(message, "$.ml_model_version") AS model_version
-             , get_json_object(message, "$.status") AS status
-             , get_json_object(message, "$.client_id") AS client_id
-             , get_json_object(message, "$.channel_id") AS channel_id
-             , get_json_object(message, "$.sale_org_id") AS sale_org_id
-             , get_json_object(message, "$.items[0].id") AS rec_prod_id1
-             , get_json_object(message, "$.items[0].name") AS rec_prod_nm1
-             , get_json_object(message, "$.items[1].id") AS rec_prod_id2
-             , get_json_object(message, "$.items[1].name") AS rec_prod_nm2
-             , get_json_object(message, "$.items[2].id") AS rec_prod_id3
-             , get_json_object(message, "$.items[2].name") AS rec_prod_nm3
-             , get_json_object(message, "$.items[3].id") AS rec_prod_id4
-             , get_json_object(message, "$.items[3].name") AS rec_prod_nm4
-             , DATE_FORMAT(GET_JSON_OBJECT(message, "$.datetime"), 'yyyyMMdd') as reco_dt
-             , DATE_FORMAT(GET_JSON_OBJECT(message, "$.datetime"), 'yyyyMMddHHmmss') as reco_dtm
-          FROM prcpln.mls_logs_prd
-         WHERE dt = '20200831'
-           and DATE_FORMAT(GET_JSON_OBJECT(message, "$.datetime"), 'yyyyMMdd') is not null
-           and GET_JSON_OBJECT(message, "$.sale_org_id") != ''
-           and GET_JSON_OBJECT(message, "$.items") is not null
-           and get_json_object(message, "$.status") = 'SUCCESS'
-           and get_json_object(message, "$.hashed_user_id") is not null
-           and get_json_object(message, "$.client_id") = 'netcrm'
-           and get_json_object(message, "$.channel_id") = 'netcrm_vas'
-           and (get_json_object(message, "$.items[0].id") in ('BNF0000001', 'NA00006399', 'VAS0000001', 'VAS0000002', 'NA00007114')
-            or get_json_object(message, "$.items[1].id") in ('BNF0000001', 'NA00006399', 'VAS0000001', 'VAS0000002', 'NA00007114')
-            or get_json_object(message, "$.items[2].id") in ('BNF0000001', 'NA00006399', 'VAS0000001', 'VAS0000002', 'NA00007114')
-            or get_json_object(message, "$.items[2].id") in ('BNF0000001', 'NA00006399', 'VAS0000001', 'VAS0000002', 'NA00007114')) --건강걷기, 스마트콜, WAVVE : 'NA00006577', flo, xcloud
-           ) a;
- 
-drop table if exists dumbo.kyu_union;
-create table if not exists dumbo.kyu_union as
-select svc_mgmt_num
-     , rec_prod_id1 as prod_id
-     , bucket_id
-     , model_type
-     , model_name
-     , model_version
-     , sale_org_id
-     , dt
-  from dumbo.kyu_addition
- where rec_prod_id1 is not null
-union all 
-select svc_mgmt_num
-     , rec_prod_id2 as prod_id
-     , bucket_id
-     , model_type
-     , model_name
-     , model_version
-     , sale_org_id
-     , dt
-  from dumbo.kyu_addition
- where rec_prod_id2 is not null
- union all 
-select svc_mgmt_num
-     , rec_prod_id3 as prod_id
-     , bucket_id
-     , model_type
-     , model_name
-     , model_version
-     , sale_org_id
-     , dt
-  from dumbo.kyu_addition
- where rec_prod_id3 is not null
- union all 
-select svc_mgmt_num
-     , rec_prod_id4 as prod_id
-     , bucket_id
-     , model_type
-     , model_name
-     , model_version
-     , sale_org_id
-     , dt
-  from dumbo.kyu_addition
- where rec_prod_id4 is not null;
-                 
-drop table if exists dumbo.kyu_join_yn;
-create table dumbo.kyu_join_yn (svc_mgmt_num string
-                                 , bucket_id string
-                                 , model_name string
-                                 , model_version string
-                                 , prod_id string
-                                 , join_yn int) partitioned by (dt string);
+set hive.execution.engine=tez;
+set hive.tez.container.size = 10572;
 
-insert overwrite table dumbo.kyu_join_yn partition(dt='20200831')
-select t.svc_mgmt_num
-     , t.bucket_id
-     , t.model_name
-     , t.model_version
-     , t.prod_id
-     , nvl(t2.join_yn, 0) as join_yn
-  from (select * from dumbo.kyu_union) as t
-  left join (select svc_mgmt_num
-                  , prod_id
-                  , 1 as join_yn
-                  , scrb_dt as dt
-                  , org_id
-               from comm.user_join_product_daily
-              where scrb_dt = '20200831'
-                and prod_id in ('NA00006399', 'NA00006577', 'NA00007114')) as t2
-    on (t.dt = t2.dt and t.prod_id = t2.prod_id and t.svc_mgmt_num = sha2(t2.svc_mgmt_num, 256) and t.sale_org_id = t2.org_id);
+drop table if exists dumbo.wavve_seg_temp;
+create table dumbo.wavve_seg_temp as
+SELECT A.svc_mgmt_num
+       , A.seg_id
+    FROM (SELECT TB.svc_mgmt_num
+               , TB.seg_id
+               , (CASE WHEN (count(dimension) = SUM(condition_value)) THEN 1 ELSE 0 END) AS CHECK
+            FROM (SELECT T.svc_mgmt_num
+                       , T2.seg_id
+                       , T2.dimension
+                       , T2.condition_id
+                       , (CASE WHEN CAST(T.value AS INT) BETWEEN CAST(T2.condition_min AS INT) AND CAST(T2.condition_max AS INT) THEN 1 ELSE 0 END) as condition_value
+                    FROM (SELECT *
+                            FROM comm.user_profile_monthly
+                           WHERE ym = '202008') AS T
+                   INNER JOIN (SELECT *
+                                 FROM dumbo.dpo_seg_info_meta
+                                WHERE prod_id = 'RP0401'
+                                  AND dt ='20200813') AS T2
+                      ON T.dimension = T2.dimension) as TB
+           GROUP BY TB.svc_mgmt_num
+                   , TB.seg_id) as A
+   WHERE A.CHECK = 1;
 
-drop table if exists dumbo.kyu_join_yn_base;
-drop table if exists dumbo.kyu_1_join_yn;
-drop table if exists dumbo.kyu_2_join_yn;
-drop table if exists dumbo.kyu_3_join_yn;
-drop table if exists dumbo.kyu_addition;
-drop table if exists dumbo.kyu_union;
+drop table if exists dumbo.wavve_user;
+create table dumbo.wavve_user as
+SELECT  t.svc_mgmt_num
+,       'VAS0000001' prod_id
+,       'wavve' prod_nm
+,       'Y' as impression_yn
+,       0.001 as score
+,       0.001 as percent_rk  -- 유료 부가서비스보다 순위 내리기 위해
+,       nvl(t2.seg_id, '#') as seg_id
+FROM (SELECT svc_mgmt_num
+       FROM comm.addition_rule
+      WHERE reco_type = 'wavve_rule'
+        AND ym = '202008') as t
+LEFT JOIN (select * from dumbo.wavve_seg_temp) as t2
+  ON t.svc_mgmt_num = t2.svc_mgmt_num;
+  
 
-drop table if exists dumbo.kyu_reco_prop;
-create table if not exists dumbo.kyu_reco_prop as
-select t.svc_mgmt_num
-     , t2.bucket_id
-     , t2.model_name
-     , t2.model_version
-     , t.prod_id
-     , nvl(t2.reco_yn, 0) as reco_yn
-  from (select sha2(svc_mgmt_num, 256) as svc_mgmt_num
-                  , prod_id
-                  , scrb_dt as dt
-               from comm.user_join_product_daily
-              where scrb_dt = '20200831'
-                and prod_id in ('NA00006399', 'NA00006577', 'NA00007114')) as t
-  left join (select *, 1 as reco_yn from dumbo.kyu_union) as t2
-    on (t.dt = t2.dt and t.prod_id = t2.prod_id and t.svc_mgmt_num = t2.svc_mgmt_num);
-    
-from scipy import stats
-
-def test_normal(x):
-    p_value = stats.shapiro(x)[1]
-    if(p_value<0.05):
-        return False
-    else:
-        return True
-
-def equal_var(x1, x2):
-    p_value = stats.bartlett(x1, x2)
-    if(p_value<0.05):
-        return False
-    else:
-        return True
-
-items = ['wavve', 'flo']
-
-ttest_results = {}
-precisions = {}
-for i in items:
-    item_dict = {i+'_model' : 'ej_mlsscore_20200727'
-                 , i+'_rule' : 'wavve_rule_2020083'}
-    
-    item_dict = {i+'_model' : 'vas_rule_20190903'
-                 , i+'_rule' : 'vas_ml_20200213'}
-                 #, i+'_model2' : 'vas_mlv2_20200219'}
-    
-    item_result = new_join[new_join['model_version'].isin(item_dict.values())]
-    
-    if(item_result['bucket_id'].nunique() <= 2): #t-test
-        if(test_normal(item_result['join_yn'].tolist())==True): #정규성
-            a = item_result[item_result['bucket_id']=='A']['join_yn'].tolist()
-            b = item_result[item_result['bucket_id']=='B']['join_yn'].tolist()
-            if(equal_var(a['join_yn'].tolist(), b['join_yn'].tolist())==True): #등분산성
-                p_value = stats.ttest_ind(a, b)[1]
-                result = {i+"_diff" : p_value}
-                precision_a = {i+"_A" : [(pd.DataFrame(a).value_counts().sort_index()/pd.DataFrame(a).shape[0])[1].values[0]]}
-                precision_b = {i+"_B" : [(pd.DataFrame(b).value_counts().sort_index()/pd.DataFrame(b).shape[0])[1].values[0]]}
-                precision_c = {}
-            else:
-                p_value = stats.ttest_ind(a, b, equal_var=False)[1]
-                result = {i+"_diff" : p_value}
-                precision_a = {i+"_A" : [(pd.DataFrame(a).value_counts().sort_index()/pd.DataFrame(a).shape[0])[1].values[0]]}
-                precision_b = {i+"_B" : [(pd.DataFrame(b).value_counts().sort_index()/pd.DataFrame(b).shape[0])[1].values[0]]}
-                precision_c = {}
-        else:
-            a = item_result[item_result['bucket_id']=='A']['join_yn'].tolist()
-            b = item_result[item_result['bucket_id']=='B']['join_yn'].tolist()
-            p_value = stats.mannwhitneyu(a, b)[1]
-    
-            result = {i+"_diff" : [p_value]}
-            precision_a = {i+"_A" : [(pd.DataFrame(a).value_counts().sort_index()/pd.DataFrame(a).shape[0])[1].values[0]]}
-            precision_b = {i+"_B" : [(pd.DataFrame(b).value_counts().sort_index()/pd.DataFrame(b).shape[0])[1].values[0]]}
-            precision_c = {}
-    else: #anova 현재 설정된 버킷의 최대 개수는 3이므로 맞춰서 일단 빠르게 만들기
-        if(test_normal(item_result['join_yn'].tolist())==True): #정규성, 등분산성은 어느정도 허용되므로 패스
-            a = item_result[item_result['bucket_id']=='A']['join_yn'].tolist()
-            b = item_result[item_result['bucket_id']=='B']['join_yn'].tolist()
-            c = item_result[item_result['bucket_id']=='C']['join_yn'].tolist()
-            
-            p_value = stats.f_oneway(a, b, c)[1]
-            
-            result = {i+"_diff" : p_value}
-            precision_a = {i+"_A" : [(pd.DataFrame(a).value_counts().sort_index()/pd.DataFrame(a).shape[0])[1].values[0]]}
-            precision_b = {i+"_B" : [(pd.DataFrame(b).value_counts().sort_index()/pd.DataFrame(b).shape[0])[1].values[0]]}
-            precision_c = {i+"_C" : [(pd.DataFrame(c).value_counts().sort_index()/pd.DataFrame(c).shape[0])[1].values[0]]}
-        else:
-            a = item_result[item_result['bucket_id']=='A']['join_yn'].tolist()
-            b = item_result[item_result['bucket_id']=='B']['join_yn'].tolist()
-            c = item_result[item_result['bucket_id']=='C']['join_yn'].tolist()
-            
-            p_value = stats.kruskal(a, b, c)[1]
-            
-            result = {i+"_diff" : p_value}
-            precision_a = {i+"_A" : [(pd.DataFrame(a).value_counts().sort_index()/pd.DataFrame(a).shape[0])[1].values[0]]}
-            precision_b = {i+"_B" : [(pd.DataFrame(b).value_counts().sort_index()/pd.DataFrame(b).shape[0])[1].values[0]]}
-            precision_c = {i+"_C" : [(pd.DataFrame(c).value_counts().sort_index()/pd.DataFrame(c).shape[0])[1].values[0]]}
-            
-    ttest_results.update(result)
-    precisions.update(precision_a)
-    precisions.update(precision_b)
-    precisions.update(precision_c)
-
-diff = pd.concat([pd.DataFrame.from_dict(results), pd.DataFrame.from_dict(precisions)], axis=1)
+INSERT OVERWRITE TABLE comm_dev.seg_reco_predict_post_filter PARTITION (reco_type = 'vas_wavve_rule', model = 'wavve_rule', dt = '20200831')
+SELECT t.*
+  FROM (select * from dumbo.wavve_user) as t
+  LEFT JOIN (SELECT svc_mgmt_num
+               FROM comm_dev.user_profile_monthly
+              WHERE ym = '202008'
+                AND dimension = 'additional_svc_pooq_scrb_type') as t2
+   ON t.svc_mgmt_num = t2.svc_mgmt_num
+WHERE t2.svc_mgmt_num is null;
+  
+                                    
