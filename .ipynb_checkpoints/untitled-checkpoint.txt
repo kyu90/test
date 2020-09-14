@@ -1,98 +1,11 @@
-"""
-DROP TABLE IF EXISTS dumbo.dpo_seg;
-CREATE TABLE dumbo.dpo_seg as
-SELECT A.svc_mgmt_num
-     , A.prod_id
-     , A.seg_id
-  FROM (SELECT TB.svc_mgmt_num
-             , TB.prod_id
-             , TB.seg_id
-             , (CASE WHEN (count(dimension) = SUM(condition_value)) THEN 1 ELSE 0 END) AS CHECK
-          FROM (SELECT T.svc_mgmt_num
-                     , T2.prod_id
-                     , T2.seg_id
-                     , T2.dimension
-                     , T2.condition_id
-                     , (CASE WHEN T.value BETWEEN T2.condition_min AND T2.condition_max THEN 1 ELSE 0 END) as condition_value
-                  FROM (SELECT * FROM comm.user_profile_monthly WHERE ym = 202008) AS T
-                 INNER JOIN (SELECT * FROM dumbo.dpo_seg_info_meta_temp WHERE dt = 20200813) AS T2
-                    ON T.dimension = T2.dimension) as TB
-         GROUP BY TB.svc_mgmt_num
-                 , TB.prod_id
-                 , TB.seg_id) as A
- WHERE A.CHECK = 1;
- 
-DROP TABLE IF EXISTS dumbo.monthly_smp_score_raw_seg;
-CREATE TABLE dumbo.monthly_smp_score_raw_seg as
-SELECT T.*
-     , nvl(T2.seg_id,'#') as seg_info
-  FROM (SELECT * FROM dumbo.monthly_smp_score_raw) AS T
-  LEFT JOIN (SELECT * FROM dumbo.dpo_seg) AS T2
-    ON T.svc_mgmt_num = T2.svc_mgmt_num AND T.prod_id = T2.prod_id;
-
-DROP TABLE IF EXISTS dumbo.monthly_smp_score_raw_seg_pivot;
-CREATE TABLE IF NOT EXISTS dumbo.monthly_smp_score_raw_seg_pivot AS
-SELECT svc_mgmt_num
-      , concat(if(s['RP0351'] is NULL,if(s['RP0350'] is NULL,if(s['RP0392'] is NULL,'#','RP0392'),'RP0350'),'RP0351'),',' , '000,', 'B,',if(s['RP0351'] is NULL,if(s['RP0350'] is NULL,if(s['RP0392'] is NULL,'#',nvl(s['RP0392'],'#')),nvl(s['RP0350'],'#')),nvl(s['RP0351'],'#'))) as wire --RP0351: 스마트다이렉트, RP0350: Giga인터넷라이트, RP0392: Giga인터넷
-      , concat(if(s['RP0393'] is NULL,'#','RP0393'),',' , '000,', 'B,',nvl(s['RP0393'],'#') ) as RP0393 -- 타사 인터넷고객
-      , concat(if(s['RP0401'] is NULL,'#','RP0401'),',' , '000,', 'B,',nvl(s['RP0401'],'#') ) as RP0401 -- wavve
-      , concat(if(s['RP0408'] is NULL,'#','RP0408'),',' , '000,', 'B,',nvl(s['RP0408'],'#') ) as RP0408 -- FLO
-      , concat(if(s['RP0400'] is NULL,'#','RP0400'),',' , '000,', 'B,',nvl(s['RP0400'],'#') ) as RP0400 -- upsell
-      , concat(if(s['RP0346'] is NULL,'#','RP0346'),',' , '000,', 'B,',nvl(s['RP0346'],'#') ) as RP0346 -- equip_chg
-      , concat(if(s['RP0314'] is NULL,'#','RP0314'),',' , '000,', 'B,',nvl(s['RP0314'],'#') ) as RP0314 -- T로밍원패스
-      , concat(if(s['RP0007'] is NULL,'#','RP0007'),',' , '000,', 'B,',nvl(s['RP0007'],'#') ) as RP0007 -- NUGU
-      , concat(if(s['RP0335'] is NULL,'#','RP0335'),',' , '000,', 'B,',nvl(s['RP0335'],'#') ) as RP0335 -- T안심보안
-      , concat(if(s['RP0388'] is NULL,'#','RP0388'),',' , '000,', 'B,',nvl(s['RP0388'],'#') ) as RP0388 -- T안심홈보안
-      , concat(if(s['RP0066'] is NULL,'#','RP0066'),',' , '000,', 'B,',nvl(s['RP0066'],'#') ) as RP0066 -- T전화
-      , concat(if(s['RP0420'] is NULL,'#','RP0420'),',' , '000,', 'B,',nvl(s['RP0420'],'#') ) as RP0420 -- 티브로드
-FROM (SELECT svc_mgmt_num, hivemall.to_map(prod_id, seg_info) as s
-        FROM dumbo.monthly_smp_score_raw_seg
-       GROUP BY svc_mgmt_num) as a;
-       
-INSERT OVERWRITE TABLE dumbo.smp_ml_score_monthly partition (work_cl_cd='CH')
-SELECT concat('CH,',svc_mgmt_num,',') as cont1
-     , concat(',', nvl(wire,'#,000,B,#')  -- 초고속
-                , ',', nvl(RP0393,'#,000,B,#') -- 타사 wifi
-                , ',', nvl(RP0420,'#,000,B,#') -- 티브로드
-                , ',', nvl(RP0314,'#,000,B,#') -- T로밍원패스
-                , ',#,000,B,#'
-                , ',#,000,B,#'
-                , ',', nvl(RP0007,'#,000,B,#') -- NUGU
-                , ',', nvl(RP0401,'#,000,B,#')  -- pooq
-                , ',', nvl(RP0408,'#,000,B,#') -- FLO
-                , ',', nvl(RP0066,'#,000,B,#')   -- T전화
-                , ',', nvl(RP0400,'#,000,B,#')  -- 요금제 upsell
-                , ',#,000,B,#'
-                , ',#,000,B,#'
-                , ',#,000,B,#'
-                , ',#,000,B,#'
-                , ',', nvl(RP0335,'#,000,B,#') -- T안심보안
-                , ',#,000,B,#'
-                , ',', nvl(RP0388,'#,000,B,#') -- T안심홈보안
-                ) as cont2
-FROM dumbo.monthly_smp_score_raw_seg_pivot; 
-
-INSERT OVERWRITE TABLE dumbo.smp_ml_score_monthly partition (work_cl_cd='GN')
-SELECT concat('GN,',svc_mgmt_num,',') as cont1
-     , concat(',', nvl(RP0346,'#') -- 기기변경
-                , ',#,000,B,#'
-                , ',#,000,B,#'
-                , ',#,000,B,#'
-                , ',#,000,B,#'
-                , ',#,000,B,#'
-                , ',', nvl(RP0007,'#') -- NUGU
-                , ',', nvl(RP0401,'#') -- pooq(wavve)
-                , ',', nvl(RP0408,'#') -- FLO
-                , ',#,000,B,#'
-                , ',#,000,B,#'
-                , ',#,000,B,#'
-                , ',#,000,B,#'
-                , ',#,000,B,#'
-                , ',#,000,B,#'
-                , ',#,000,B,#'
-                , ',#,000,B,#'
-                , ',#,000,B,#'
-                ) as cont2
-FROM dumbo.monthly_smp_score_raw_seg_pivot; 
-       
-"""
+select t.svc_mgmt_num
+     , t2.contex_id
+  from (select *
+          from comm.user_profile_monthly
+         where ym='202009') as t
+ inner join (select context_id
+                 , context_nm 
+              from comm.context_meta 
+             where item_id = 'ADT0000001'
+               and dt = '20200825') as t2
+    on t.dimension = t2.context_id
